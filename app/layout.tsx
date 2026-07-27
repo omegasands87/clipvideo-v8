@@ -1,27 +1,30 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import {
-  Inter,
-  Montserrat,
-  Poppins,
-  Anton,
-  Bebas_Neue,
-  Roboto_Condensed,
-} from 'next/font/google';
 
-// Every font offered in the Typography card must actually be loaded here —
-// otherwise selecting it in the dropdown has zero visual effect (the
-// browser silently falls back to whatever font was already active).
-const inter = Inter({ subsets: ['latin'], weight: ['300', '400', '500', '600', '700'], variable: '--font-inter' });
-const montserrat = Montserrat({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-montserrat' });
-const poppins = Poppins({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-poppins' });
-const anton = Anton({ subsets: ['latin'], weight: ['400'], variable: '--font-anton' });
-const bebasNeue = Bebas_Neue({ subsets: ['latin'], weight: ['400'], variable: '--font-bebas-neue' });
-const robotoCondensed = Roboto_Condensed({
-  subsets: ['latin'],
-  weight: ['400', '700'],
-  variable: '--font-roboto-condensed',
-});
+// NOTE: we intentionally do NOT use next/font/google here.
+// next/font/google downloads the actual font files from fonts.gstatic.com
+// at BUILD TIME and self-hosts them — great when it works, but it means any
+// network hiccup/timeout talking to Google's servers during `next build`
+// fails the ENTIRE deployment with a hard webpack error (see
+// "FetchError: request to https://fonts.gstatic.com/... ETIMEDOUT" /
+// "'next/font' error: Failed to fetch 'Inter' from Google Fonts."). That
+// dependency is fragile and out of our control (Vercel build region,
+// transient Google outages, corporate proxies, etc).
+//
+// Instead we load the same fonts the normal client-side way: a <link> to
+// Google's CSS API in the document head. The browser fetches them at
+// runtime (with its own retries/caching), which never blocks the build.
+const GOOGLE_FONTS_HREF =
+  'https://fonts.googleapis.com/css2?' +
+  [
+    'family=Inter:wght@300;400;500;600;700',
+    'family=Montserrat:wght@400;700',
+    'family=Poppins:wght@400;700',
+    'family=Anton',
+    'family=Bebas+Neue',
+    'family=Roboto+Condensed:wght@400;700',
+  ].join('&') +
+  '&display=swap';
 
 export const metadata: Metadata = {
   title: 'CutClip AI — Client-Side AI Video Processing Studio',
@@ -30,11 +33,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html
-      lang="id"
-      className={`dark ${inter.variable} ${montserrat.variable} ${poppins.variable} ${anton.variable} ${bebasNeue.variable} ${robotoCondensed.variable}`}
-    >
-      <body className={inter.className}>{children}</body>
+    <html lang="id" className="dark">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="stylesheet" href={GOOGLE_FONTS_HREF} />
+      </head>
+      <body style={{ fontFamily: 'var(--font-inter)' }}>{children}</body>
     </html>
   );
 }
