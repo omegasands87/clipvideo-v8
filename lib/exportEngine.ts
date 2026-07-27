@@ -48,13 +48,16 @@ async function fetchWithTimeout(url: string, ms = 8000): Promise<Response> {
 }
 
 /**
- * Fetches a real .ttf for the chosen font via the google-webfonts-helper API,
- * for burning subtitles with the SAME font shown in the preview.
+ * Fetches a real .ttf for the chosen font so ffmpeg drawtext can burn
+ * subtitles with the SAME typeface shown in the live preview.
  *
- * The result is cached in IndexedDB (see fontCache.ts) keyed by font+weight,
- * so this network round-trip only ever happens ONCE per font per browser —
- * every export after the first reuses the cached bytes, even fully offline,
- * instead of depending on gwfh.mranftl.com being reachable every single time.
+ * Flow:
+ *  1. Check IndexedDB cache (fontCache.ts) — hit → return immediately,
+ *     works fully offline after the first successful download.
+ *  2. Miss → call our same-origin /api/font proxy. That route fetches from
+ *     gwfh.mranftl.com server-side (no CORS), then returns the binary TTF.
+ *     Direct browser calls to gwfh.mranftl.com are blocked by CORS from
+ *     Vercel/Netlify origins, which is why the proxy exists.
  */
 async function fetchFontTtf(fontFamily: string): Promise<Uint8Array | null> {
   const entry = FONT_REGISTRY[fontFamily] ?? FONT_REGISTRY.Inter;
@@ -64,19 +67,13 @@ async function fetchFontTtf(fontFamily: string): Promise<Uint8Array | null> {
   if (cached) return cached;
 
   try {
-    const metaRes = await fetchWithTimeout(`https://gwfh.mranftl.com/api/fonts/${entry.gwfhId}?subsets=latin`);
-    if (!metaRes.ok) return null;
-    const meta = await metaRes.json();
-    const variants: any[] = meta.variants ?? [];
-    const variant =
-      variants.find((v) => String(v.id) === entry.weight || String(v.fontWeight) === entry.weight) ??
-      variants.find((v) => v.id === 'regular' || v.id === '400') ??
-      variants[0];
-    const ttfUrl: string | undefined = variant?.ttf ?? variant?.fontUrl?.ttf;
-    if (!ttfUrl) return null;
-    const fontRes = await fetchWithTimeout(ttfUrl);
-    if (!fontRes.ok) return null;
-    const bytes = new Uint8Array(await fontRes.arrayBuffer());
+    // Same-origin proxy — avoids CORS that blocks direct browser access
+    // to https://gwfh.mranftl.com from the deployed origin.
+    const url = `/api/font?id=${encodeURIComponent(entry.gwfhId)}&weight=${encodeURIComponent(entry.weight)}`;
+    const res = await fetchWithTimeout(url, 20000);
+    if (!res.ok) return null;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.byteLength < 1000) return null; // sanity: real TTFs are larger
     await setCachedFont(cacheKey, bytes);
     return bytes;
   } catch {
@@ -125,7 +122,7 @@ export async function renderExport(input: ExportInput): Promise<ExportResult> {
     fontfileArg = ':fontfile=subfont.ttf';
   } else {
     warning =
-      'Font khusus gagal diunduh untuk proses render (butuh koneksi internet) — subtitle dibakar memakai font default.';
+      'Font khusus gagal diunduh untuk proses render — subtitle dibakar memakai font default. Coba lagi (font akan di-cache setelah sukses).';
   }
 
   const clipDuration = Math.max(0.1, input.endTime - input.startTime);
